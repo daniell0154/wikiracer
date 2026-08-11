@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WikiRacer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Start Screen -->
+  <div class="start-screen" id="startScreen">
+    <div class="start-globe">W</div>
+    <h1>WikiRacer</h1>
+    <p class="subtitle">Navegue de um artigo aleatório da Wikipedia até outro usando apenas os links internos. Quem chega em menos cliques, vence!</p>
+    <div class="difficulty-selector">
+      <button class="diff-btn active" data-diff="easy" onclick="setDifficulty('easy')">Fácil</button>
+      <button class="diff-btn" data-diff="medium" onclick="setDifficulty('medium')">Médio</button>
+      <button class="diff-btn" data-diff="hard" onclick="setDifficulty('hard')">Difícil</button>
+    </div>
+    <button class="start-btn" onclick="startGame()">Jogar</button>
+  </div>
+
+  <!-- App Container (hidden until game starts) -->
+  <div class="app-container" id="appContainer" style="display:none;">
+    
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="topbar-logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="14" stroke="#202122" stroke-width="1.5"/>
+            <text x="16" y="21" text-anchor="middle" font-size="14" font-family="serif" font-weight="700" fill="#202122">W</text>
+          </svg>
+          WikiRacer
+        </span>
+      </div>
+      <div class="topbar-right">
+        <div class="stat-box">
+          <span class="stat-value" id="clickCount">0</span>
+          <span class="stat-label">Cliques</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="timer">0:00</span>
+          <span class="stat-label">Tempo</span>
+        </div>
+        <button class="new-game-btn" onclick="showStartScreen()">Novo jogo</button>
+      </div>
+    </header>
+
+    <!-- Game Bar -->
+    <div class="game-bar" id="targetBar">
+      <span class="game-badge start">Início</span>
+      <span class="game-title" id="startTitle"></span>
+      <span class="game-arrow">→</span>
+      <span class="game-badge end">Alvo</span>
+      <span class="game-title end" id="endTitle"></span>
+    </div>
+
+    <!-- History Bar -->
+    <div class="history-bar" id="historyBar"></div>
+
+    <!-- Main Layout: Sidebar + Article -->
+    <div class="main-layout">
+      
+      <!-- Sidebar: TOC -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="14" stroke="#202122" stroke-width="1.5"/>
+            <text x="16" y="21" text-anchor="middle" font-size="14" font-family="serif" font-weight="700" fill="#202122">W</text>
+          </svg>
+          <span class="wiki-mini-text">Wikipédia</span>
+        </div>
+        <div class="sidebar-toc" id="sidebarToc">
+          <div class="toc-title-bar">
+            <span class="toc-title-text">Conteúdos</span>
+            <span class="toc-toggle-btn" id="tocToggleBtn" onclick="toggleToc()">ocultar</span>
+          </div>
+          <ul class="toc-nav" id="tocNav"></ul>
+        </div>
+      </aside>
+
+      <!-- Article Area -->
+      <main class="article-area">
+        <div class="loading-overlay hidden" id="loadingOverlay">
+          <div class="spinner"></div>
+          <div class="loading-text">Carregando artigo...</div>
+        </div>
+        <iframe id="wiki-frame" sandbox="allow-same-origin allow-scripts" src="about:blank"></iframe>
+      </main>
+
+      <aside class="game-panel" aria-label="Status da partida">
+        <section class="game-panel-section">
+          <h2>Partida</h2>
+          <div class="panel-stat-row">
+            <span>Tempo</span>
+            <strong id="panelTimer">0:00</strong>
+          </div>
+          <div class="panel-stat-row">
+            <span>Cliques</span>
+            <strong id="panelClicks">0</strong>
+          </div>
+        </section>
+
+        <section class="game-panel-section">
+          <h2>Participantes</h2>
+          <p class="panel-muted">Você</p>
+        </section>
+
+        <section class="game-panel-section route-panel">
+          <h2>Seu percurso</h2>
+          <ol class="route-list" id="routeList"></ol>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Tooltip -->
+  <div class="wiki-tooltip" id="wikiTooltip">
+    <div class="wiki-tooltip-title" id="tooltipTitle"></div>
+    <div class="wiki-tooltip-desc" id="tooltipDesc"></div>
+  </div>
+
+  <!-- Victory Modal -->
+  <div class="victory-overlay hidden" id="victoryOverlay">
+    <div class="victory-modal">
+      <h2>Você venceu!</h2>
+      <p>Chegou no artigo alvo!</p>
+      <div class="victory-stats">
+        <div>
+          <div class="victory-stat-value" id="finalClicks">0</div>
+          <div class="victory-stat-label">Cliques</div>
+        </div>
+        <div>
+          <div class="victory-stat-value" id="finalTime">0:00</div>
+          <div class="victory-stat-label">Tempo</div>
+        </div>
+      </div>
+      <div class="victory-path" id="victoryPath"></div>
+      <button class="play-again-btn" onclick="playAgain()">Jogar novamente</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

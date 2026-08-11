@@ -18,7 +18,43 @@
       <button class="diff-btn" data-diff="medium" onclick="setDifficulty('medium')">Médio</button>
       <button class="diff-btn" data-diff="hard" onclick="setDifficulty('hard')">Difícil</button>
     </div>
-    <button class="start-btn" onclick="startGame()">Jogar</button>
+    <div class="start-actions">
+      <button class="start-btn" onclick="startSoloGame()">Jogar solo</button>
+      <button class="secondary-btn" onclick="openPartySetup()">Criar ou entrar em party</button>
+    </div>
+  </div>
+
+  <div class="party-screen hidden" id="partySetup">
+    <div class="party-card">
+      <button class="close-btn" onclick="closePartySetup()" aria-label="Fechar">×</button>
+      <h1>Party multiplayer</h1>
+      <p>Convide até 10 pessoas, votem no percurso e corram até o alvo.</p>
+      <label for="partyName">Seu nome</label>
+      <input id="partyName" maxlength="24" placeholder="Ex.: Daniel" autocomplete="nickname">
+      <div class="party-choices">
+        <button class="start-btn" onclick="createParty()">Criar party</button>
+        <div class="join-party">
+          <label for="partyCode">Código da party</label>
+          <div><input id="partyCode" maxlength="6" placeholder="ABC123"><button class="secondary-btn" onclick="joinParty()">Entrar</button></div>
+        </div>
+      </div>
+      <p class="party-error" id="partyError"></p>
+    </div>
+  </div>
+
+  <div class="party-screen hidden" id="partyLobby">
+    <div class="party-card party-lobby-card">
+      <h1>Lobby da party</h1>
+      <p class="party-code-display">Código: <strong id="lobbyCode"></strong></p>
+      <p class="party-status" id="lobbyStatus">Escolham os artigos da rodada.</p>
+      <div class="vote-grid" id="voteGrid"></div>
+      <div class="lobby-members">
+        <h2>Participantes <span id="lobbyMemberCount"></span></h2>
+        <ul id="lobbyMembers"></ul>
+      </div>
+      <button class="start-btn" id="startPartyButton" onclick="startPartyGame()">Iniciar partida</button>
+      <p class="party-error" id="lobbyError"></p>
+    </div>
   </div>
 
   <!-- App Container (hidden until game starts) -->
@@ -105,12 +141,18 @@
 
         <section class="game-panel-section">
           <h2>Participantes</h2>
-          <p class="panel-muted">Você</p>
+          <ul class="participant-list" id="participantList"><li class="panel-muted">Você</li></ul>
         </section>
 
         <section class="game-panel-section route-panel">
           <h2>Seu percurso</h2>
           <ol class="route-list" id="routeList"></ol>
+        </section>
+
+        <section class="game-panel-section hidden" id="finishPanel">
+          <h2>Chegada</h2>
+          <p class="finish-countdown" id="finishCountdown"></p>
+          <button class="secondary-btn" onclick="quitPartyGame()">Desistir da partida</button>
         </section>
       </aside>
     </div>
@@ -143,8 +185,10 @@
   </div>
 
   <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.94.0"></script>
   <script src="js/api.js"></script>
   <script src="js/renderer.js"></script>
+  <script src="js/supabase.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

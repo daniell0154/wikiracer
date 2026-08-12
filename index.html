@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WikiRacer</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -72,6 +73,7 @@
         </span>
       </div>
       <div class="topbar-right">
+        <button class="theme-toggle" type="button" onclick="toggleTheme()" aria-label="Alternar tema" title="Alternar tema">◐</button>
         <div class="stat-box">
           <span class="stat-value" id="clickCount">0</span>
           <span class="stat-label">Cliques</span>
@@ -127,6 +129,12 @@
       </main>
 
       <aside class="game-panel" aria-label="Status da partida">
+        <section class="game-panel-section mission-panel">
+          <h2>Missão</h2>
+          <div class="mission-cards" id="missionCards">
+            <p class="panel-muted">Carregando informações dos artigos...</p>
+          </div>
+        </section>
         <section class="game-panel-section">
           <h2>Partida</h2>
           <div class="panel-stat-row">
@@ -160,6 +168,7 @@
 
   <!-- Tooltip -->
   <div class="wiki-tooltip" id="wikiTooltip">
+    <div class="wiki-tooltip-image" id="tooltipImage"><img alt="" referrerpolicy="no-referrer"><span>Sem imagem disponível</span></div>
     <div class="wiki-tooltip-title" id="tooltipTitle"></div>
     <div class="wiki-tooltip-desc" id="tooltipDesc"></div>
   </div>

@@ -75,7 +75,7 @@ begin
   if auth.uid() is null then raise exception 'not authenticated'; end if;
   if jsonb_array_length(p_options) <> 6 then raise exception 'six options required'; end if;
   loop
-    v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 6));
+    v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
     exit when not exists (select 1 from public.parties where code = v_code);
   end loop;
   insert into public.parties (code, host_id) values (v_code, auth.uid()) returning * into v_party;

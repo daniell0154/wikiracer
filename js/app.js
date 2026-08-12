@@ -14,7 +14,52 @@ var state = {
   partySnapshot: null,
   partyRefreshPending: false,
   partyClosed: false,
+  darkMode: localStorage.getItem('wikiracer-theme') === 'dark',
+  missionKey: null,
 };
+
+function applyTheme() {
+  document.documentElement.dataset.theme = state.darkMode ? 'dark' : 'light';
+  document.querySelector('.theme-toggle').textContent = state.darkMode ? '☀' : '◐';
+}
+
+function toggleTheme() {
+  state.darkMode = !state.darkMode;
+  localStorage.setItem('wikiracer-theme', state.darkMode ? 'dark' : 'light');
+  applyTheme();
+  if (state.currentArticle) loadArticle(state.currentArticle, false);
+}
+
+function renderMissionDetails(startTitle, targetTitle) {
+  var container = document.getElementById('missionCards');
+  var missionKey = startTitle + '|' + targetTitle;
+  if (state.missionKey === missionKey && container.children.length) return;
+  state.missionKey = missionKey;
+  container.innerHTML = '<p class="panel-muted">Carregando informações dos artigos...</p>';
+  Promise.all([getArticleSummary(startTitle), getArticleSummary(targetTitle)]).then(function(items) {
+    container.innerHTML = '';
+    items.forEach(function(summary, index) {
+      var card = document.createElement('article');
+      card.className = 'mission-card ' + (index === 0 ? 'mission-start' : 'mission-target');
+      card.innerHTML = '<div class="mission-card-heading">' + (index === 0 ? 'Parta de' : 'Encontre') + '</div>' +
+        '<div class="mission-image"><img alt="" referrerpolicy="no-referrer"><span>Sem imagem disponível</span></div>' +
+        '<h3></h3><p></p>';
+      var image = card.querySelector('img');
+      var imageFallback = card.querySelector('.mission-image');
+      if (summary && summary.image) {
+        image.alt = 'Imagem de ' + summary.title;
+        image.onload = function() { imageFallback.classList.add('has-image'); };
+        image.onerror = function() { image.removeAttribute('src'); };
+        image.src = summary.image;
+      }
+      card.querySelector('h3').textContent = summary ? summary.title : (index === 0 ? startTitle : targetTitle);
+      card.querySelector('p').textContent = summary ? summary.description : 'Não foi possível carregar o resumo.';
+      container.appendChild(card);
+    });
+  }).catch(function() {
+    container.innerHTML = '<p class="panel-muted">Não foi possível carregar as informações da missão.</p>';
+  });
+}
 
 function partyError(message, targetId) {
   document.getElementById(targetId || 'partyError').textContent = message || '';
@@ -39,10 +84,12 @@ async function createParty() {
   partyError('Criando opções de voto...');
   try {
     await ensurePartyIdentity();
-    var articles = await getRandomArticles(6);
-    var options = articles.map(function(article, index) {
-      return { kind: index < 3 ? 'start' : 'target', position: (index % 3) + 1, title: article.title };
-    });
+    var route = await getBalancedRoute(8);
+    var options = route.slice(0, 3).map(function(title, index) {
+      return { kind: 'start', position: index + 1, title: title };
+    }).concat(route.slice(5, 8).map(function(title, index) {
+      return { kind: 'target', position: index + 1, title: title };
+    }));
     var party = await callPartyRpc('create_party', { p_display_name: name, p_options: options });
     closePartySetup();
     await enterPartyLobby(party.id);
@@ -164,6 +211,9 @@ function launchPartyGame(snapshot) {
   state.playing = snapshot.party.status !== 'finished' && (!mine || mine.status === 'active');
   document.getElementById('startTitle').textContent = state.startArticle;
   document.getElementById('endTitle').textContent = state.endArticle;
+  attachTooltipEvents(document.getElementById('startTitle'), state.startArticle);
+  attachTooltipEvents(document.getElementById('endTitle'), state.endArticle);
+  renderMissionDetails(state.startArticle, state.endArticle);
   document.getElementById('clickCount').textContent = state.clicks;
   document.getElementById('panelClicks').textContent = state.clicks;
   if (!state.timerInterval) startTimer();
@@ -190,8 +240,18 @@ function showStartScreen() {
 // Tooltip
 function showTooltip(element, title, summary) {
   var tooltip = document.getElementById('wikiTooltip');
+  var imageContainer = document.getElementById('tooltipImage');
+  var image = imageContainer.querySelector('img');
   document.getElementById('tooltipTitle').textContent = title;
   document.getElementById('tooltipDesc').textContent = summary.description || 'Carregando...';
+  imageContainer.classList.remove('has-image');
+  image.removeAttribute('src');
+  if (summary.image) {
+    image.alt = 'Imagem de ' + (summary.title || title);
+    image.onload = function() { imageContainer.classList.add('has-image'); };
+    image.onerror = function() { image.removeAttribute('src'); };
+    image.src = summary.image;
+  }
 
   var rect = element.getBoundingClientRect();
   var left = rect.left + rect.width / 2 - 180;
@@ -211,6 +271,8 @@ function hideTooltip() {
 }
 
 function attachTooltipEvents(element, title) {
+  if (element.dataset.tooltipTitle === title) return;
+  element.dataset.tooltipTitle = title;
   var summaryCache = null;
   element.addEventListener('mouseenter', function() {
     if (!summaryCache) {
@@ -218,7 +280,7 @@ function attachTooltipEvents(element, title) {
       getArticleSummary(title).then(function(result) {
         summaryCache = result || { description: 'Não foi possível carregar a descrição.' };
         if (tooltip._visible) {
-          document.getElementById('tooltipDesc').textContent = summaryCache.description;
+          showTooltip(element, title, summaryCache);
         }
       });
     }
@@ -489,7 +551,7 @@ function loadArticle(title, addToPath) {
   
   return getArticleHtml(title)
     .then(function(result) {
-      var fullPage = buildWikiPage(fixRelativeUrls(result.html), title, result.sections);
+      var fullPage = buildWikiPage(fixRelativeUrls(result.html), title, result.sections, state.darkMode);
       var frame = document.getElementById('wiki-frame');
       
       frame.srcdoc = fullPage;
@@ -629,16 +691,11 @@ function startGame() {
   document.getElementById('panelTimer').textContent = '0:00';
 
   showLoading(true);
-  getRandomArticles(2)
-    .then(function(articles) {
-      state.startArticle = articles[0].title;
-      state.endArticle = articles[1].title;
-
-      if (normalizeTitle(state.startArticle) === normalizeTitle(state.endArticle)) {
-        return getRandomArticles(1).then(function(extra) {
-          state.endArticle = extra[0].title;
-        });
-      }
+  var hopsByDifficulty = { easy: 3, medium: 5, hard: 7 };
+  getBalancedRoute(hopsByDifficulty[state.difficulty] + 1)
+    .then(function(route) {
+      state.startArticle = route[0];
+      state.endArticle = route[route.length - 1];
     })
     .then(function() {
       var startTitleEl = document.getElementById('startTitle');
@@ -649,6 +706,7 @@ function startGame() {
 
       attachTooltipEvents(startTitleEl, state.startArticle);
       attachTooltipEvents(endTitleEl, state.endArticle);
+      renderMissionDetails(state.startArticle, state.endArticle);
 
       startTimer();
       return loadArticle(state.startArticle, true);
@@ -674,3 +732,5 @@ var observer = new MutationObserver(function(mutations) {
   });
 });
 observer.observe(tooltip, { attributes: true, attributeFilter: ['class'] });
+
+applyTheme();

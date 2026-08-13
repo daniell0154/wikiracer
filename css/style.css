@@ -1,6 +1,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
+  --display-font: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --ui-font: 'Avenir Next', Avenir, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --bg: #f6f6f6;
   --surface: #ffffff;
   --surface2: #eaecf0;
@@ -61,6 +63,7 @@ body {
   z-index: 100;
   gap: 20px;
   transition: opacity 0.4s;
+  font-family: var(--ui-font);
 }
 
 .start-screen.hidden { opacity: 0; pointer-events: none; }
@@ -69,16 +72,17 @@ body {
   width: 80px; height: 80px; border-radius: 50%;
   background: var(--surface2);
   display: flex; align-items: center; justify-content: center;
-  font-size: 40px; font-family: 'Linux Libertine', 'Georgia', serif; font-weight: 700;
+  font-size: 40px; font-family: var(--display-font); font-weight: 700;
 }
 
 .start-screen h1 {
-  font-size: 36px; font-weight: 400;
-  font-family: 'Linux Libertine', 'Georgia', serif;
+  font-size: 40px; font-weight: 600;
+  font-family: var(--display-font);
+  letter-spacing: -0.035em;
 }
 
 .subtitle {
-  color: var(--text-muted); font-size: 14px;
+  color: var(--text-muted); font-size: 15px;
   max-width: 460px; text-align: center; line-height: 1.6;
 }
 
@@ -136,10 +140,11 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 3px;
+  font-family: var(--ui-font);
 }
 
-.party-card h1, .party-card h2 { font-family: 'Linux Libertine', 'Georgia', serif; font-weight: 400; }
-.party-card h1 { margin-bottom: 8px; }
+.party-card h1, .party-card h2 { font-family: var(--display-font); font-weight: 600; }
+.party-card h1 { margin-bottom: 8px; font-size: 30px; letter-spacing: -0.025em; }
 .party-card p { color: var(--text-muted); margin-bottom: 18px; }
 .party-card label { display: block; margin: 14px 0 6px; font-size: 13px; font-weight: 600; }
 .party-card input { width: 100%; padding: 9px; border: 1px solid var(--border); font: inherit; }
@@ -154,6 +159,7 @@ body {
 .vote-group h2 { font-size: 18px; margin-bottom: 8px; }
 .vote-option { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 6px 0; padding: 8px; text-align: left; background: #f8f9fa; border: 1px solid transparent; color: var(--link); cursor: pointer; }
 .vote-option:hover, .vote-option.selected { border-color: var(--accent); background: #eaecf0; }
+.vote-option:disabled { cursor: wait; opacity: 0.7; }
 .vote-count { color: var(--text-muted); font-size: 12px; }
 .lobby-members { margin: 20px 0; }
 .lobby-members h2 { font-size: 18px; margin-bottom: 8px; }
@@ -162,6 +168,10 @@ body {
 .participant-list { font-size: 13px; }
 .participant-list li { display: flex; justify-content: space-between; gap: 6px; }
 .participant-list .me { font-weight: 700; }
+.party-announcement { margin-bottom: 8px; color: var(--text-muted); line-height: 1.4; }
+.party-ranking { margin: 0; padding-left: 20px; }
+.party-ranking li { margin: 6px 0; line-height: 1.35; }
+.party-ranking .me { color: var(--text); font-weight: 700; }
 .finish-countdown { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* === App Container === */
@@ -223,7 +233,7 @@ body {
 
 .game-title {
   font-family: 'Linux Libertine', 'Georgia', serif; font-size: 14px;
-  color: var(--link); cursor: help; border-bottom: 1px dotted var(--link);
+  color: var(--link); cursor: default; border-bottom: 0; pointer-events: none;
 }
 
 .game-title.end { color: var(--success); border-bottom-color: var(--success); }
@@ -406,6 +416,9 @@ body {
   margin-bottom: 10px;
 }
 .mission-cards { display: grid; gap: 10px; }
+.mission-tabs { display: grid; gap: 6px; }
+.mission-tab { width: 100%; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: 3px; background: var(--surface); color: var(--link); font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mission-tab.active { border-color: var(--accent); background: var(--accent); color: #fff; }
 .mission-card { overflow: hidden; border: 1px solid var(--border-light); background: var(--surface2); border-radius: 3px; }
 .mission-card-heading { padding: 6px 8px; color: #fff; background: var(--accent); font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .mission-target .mission-card-heading { background: var(--success); }
@@ -460,6 +473,7 @@ body {
   .game-panel-section + .game-panel-section { margin-top: 0; padding-top: 0; border-top: 0; }
   .mission-panel { grid-column: 1 / -1; }
   .mission-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mission-tabs { grid-column: 1 / -1; width: 100%; }
   .route-panel { grid-column: 1 / -1; }
 
   .party-choices, .vote-grid { grid-template-columns: 1fr; }
@@ -500,6 +514,7 @@ body {
   .article-area { height: 52vh; min-height: 300px; }
   .game-panel { grid-template-columns: 1fr; gap: 14px; padding: 14px 12px; }
   .mission-cards { grid-template-columns: 1fr; }
+  .mission-tabs { grid-column: auto; }
   .mission-image, .mission-image img { height: 140px; }
   .game-panel-section + .game-panel-section { border-top: 1px solid var(--border-light); padding-top: 14px; }
   .mission-panel, .route-panel { grid-column: auto; }

@@ -38,7 +38,11 @@ function getArticleLinks(title) {
     .then(function(data) {
       const pages = data.query && data.query.pages ? data.query.pages : {};
       const page = pages[Object.keys(pages)[0]];
-      return page && page.links ? page.links.map(function(link) { return link.title; }) : [];
+      return page && page.links ? page.links
+        .filter(function(link) {
+          return link.title && !Object.prototype.hasOwnProperty.call(link, 'missing') && !Object.prototype.hasOwnProperty.call(link, 'invalid');
+        })
+        .map(function(link) { return link.title; }) : [];
     });
 }
 

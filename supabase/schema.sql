@@ -73,13 +73,29 @@ declare
   v_item jsonb;
 begin
   if auth.uid() is null then raise exception 'not authenticated'; end if;
-  if jsonb_array_length(p_options) <> 6 then raise exception 'six options required'; end if;
+  if jsonb_array_length(p_options) <> 0 and jsonb_array_length(p_options) <> 6 then raise exception 'zero or six options required'; end if;
   loop
     v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
     exit when not exists (select 1 from public.parties where code = v_code);
   end loop;
   insert into public.parties (code, host_id) values (v_code, auth.uid()) returning * into v_party;
   insert into public.party_members (party_id, user_id, display_name) values (v_party.id, auth.uid(), trim(p_display_name));
+  for v_item in select * from jsonb_array_elements(p_options) loop
+    insert into public.party_options (party_id, kind, title, position)
+    values (v_party.id, (v_item->>'kind')::public.vote_kind, v_item->>'title', (v_item->>'position')::smallint);
+  end loop;
+  return v_party;
+end;
+$$;
+
+create or replace function public.open_party_voting(p_party_id uuid, p_options jsonb)
+returns public.parties language plpgsql security definer set search_path = public as $$
+declare v_party public.parties; v_item jsonb;
+begin
+  select * into v_party from public.parties where id = p_party_id for update;
+  if not found or v_party.host_id <> auth.uid() then raise exception 'only host can open voting'; end if;
+  if v_party.status <> 'lobby' then raise exception 'voting already opened'; end if;
+  if jsonb_array_length(p_options) <> 6 then raise exception 'six options required'; end if;
   for v_item in select * from jsonb_array_elements(p_options) loop
     insert into public.party_options (party_id, kind, title, position)
     values (v_party.id, (v_item->>'kind')::public.vote_kind, v_item->>'title', (v_item->>'position')::smallint);
@@ -134,17 +150,18 @@ begin
 end;
 $$;
 
-create or replace function public.record_party_jump(p_party_id uuid, p_path jsonb)
+create or replace function public.record_party_jump(p_party_id uuid, p_path jsonb, p_clicks integer)
 returns void language plpgsql security definer set search_path = public as $$
 begin
   if not exists (select 1 from public.parties where id = p_party_id and status in ('playing', 'finishing')) then raise exception 'game not active'; end if;
-  update public.party_members set clicks = clicks + 1, path = p_path
+  if p_clicks < 0 then raise exception 'invalid click count'; end if;
+  update public.party_members set clicks = greatest(clicks, p_clicks), path = p_path
     where party_id = p_party_id and user_id = auth.uid() and status = 'active';
   if not found then raise exception 'player is not active'; end if;
 end;
 $$;
 
-create or replace function public.finish_party_member(p_party_id uuid, p_path jsonb)
+create or replace function public.finish_party_member(p_party_id uuid, p_path jsonb, p_clicks integer)
 returns public.party_members language plpgsql security definer set search_path = public as $$
 declare v_party public.parties; v_placement smallint; v_member public.party_members;
 begin
@@ -158,7 +175,8 @@ begin
   end if;
   select count(*) + 1 into v_placement from public.party_members where party_id = p_party_id and placement between 1 and 3;
   if v_placement > 3 then v_placement := 4; end if;
-  update public.party_members set clicks = clicks + 1, path = p_path, status = 'finished', placement = v_placement, finished_at = now()
+  if p_clicks < 0 then raise exception 'invalid click count'; end if;
+  update public.party_members set clicks = greatest(clicks, p_clicks), path = p_path, status = 'finished', placement = v_placement, finished_at = now()
     where party_id = p_party_id and user_id = auth.uid() and status = 'active' returning * into v_member;
   if not found then raise exception 'player is not active'; end if;
   if v_placement = 1 then update public.parties set status = 'finishing', finish_deadline = now() + interval '90 seconds' where id = p_party_id; end if;
@@ -184,9 +202,28 @@ begin
 end;
 $$;
 
+create or replace function public.return_party_to_lobby(p_party_id uuid)
+returns public.parties language plpgsql security definer set search_path = public as $$
+declare v_party public.parties;
+begin
+  select * into v_party from public.parties where id = p_party_id for update;
+  if not found or v_party.host_id <> auth.uid() then raise exception 'only host can return to lobby'; end if;
+  if v_party.status <> 'finished' then raise exception 'party is not finished'; end if;
+  delete from public.party_votes where party_id = p_party_id;
+  delete from public.party_options where party_id = p_party_id;
+  update public.party_members
+    set status = 'active', clicks = 0, path = '[]'::jsonb, placement = null, finished_at = null
+    where party_id = p_party_id;
+  update public.parties
+    set status = 'lobby', selected_start = null, selected_target = null, started_at = null, finish_deadline = null
+    where id = p_party_id returning * into v_party;
+  return v_party;
+end;
+$$;
+
 grant usage on schema public to anon, authenticated;
 grant select on public.parties, public.party_members, public.party_options, public.party_votes to anon, authenticated;
-revoke all on function public.create_party(text, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb), public.finish_party_member(uuid, jsonb), public.quit_party_member(uuid), public.close_party(uuid) from public;
-grant execute on function public.create_party(text, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb), public.finish_party_member(uuid, jsonb), public.quit_party_member(uuid), public.close_party(uuid) to anon, authenticated;
+revoke all on function public.create_party(text, jsonb), public.open_party_voting(uuid, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb, integer), public.finish_party_member(uuid, jsonb, integer), public.quit_party_member(uuid), public.close_party(uuid), public.return_party_to_lobby(uuid) from public;
+grant execute on function public.create_party(text, jsonb), public.open_party_voting(uuid, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb, integer), public.finish_party_member(uuid, jsonb, integer), public.quit_party_member(uuid), public.close_party(uuid), public.return_party_to_lobby(uuid) to anon, authenticated;
 
 alter publication supabase_realtime add table public.parties, public.party_members, public.party_options, public.party_votes;

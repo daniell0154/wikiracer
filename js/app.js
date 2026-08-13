@@ -14,8 +14,15 @@ var state = {
   partySnapshot: null,
   partyRefreshPending: false,
   partyClosed: false,
+  partyStartPending: false,
+  partyVotePending: false,
+  partyPollingInterval: null,
+  partyReturnPending: false,
   darkMode: localStorage.getItem('wikiracer-theme') === 'dark',
   missionKey: null,
+  missionTab: 'start',
+  articleRequestId: 0,
+  articleLoadPending: false,
 };
 
 function applyTheme() {
@@ -35,10 +42,19 @@ function renderMissionDetails(startTitle, targetTitle) {
   var missionKey = startTitle + '|' + targetTitle;
   if (state.missionKey === missionKey && container.children.length) return;
   state.missionKey = missionKey;
+  state.missionTab = 'start';
   container.innerHTML = '<p class="panel-muted">Carregando informações dos artigos...</p>';
   Promise.all([getArticleSummary(startTitle), getArticleSummary(targetTitle)]).then(function(items) {
+    if (state.missionKey !== missionKey) return;
     container.innerHTML = '';
-    items.forEach(function(summary, index) {
+    var tabs = document.createElement('div');
+    tabs.className = 'mission-tabs';
+    var details = document.createElement('div');
+    details.className = 'mission-details';
+
+    function renderSelectedMission() {
+      var index = state.missionTab === 'start' ? 0 : 1;
+      var summary = items[index];
       var card = document.createElement('article');
       card.className = 'mission-card ' + (index === 0 ? 'mission-start' : 'mission-target');
       card.innerHTML = '<div class="mission-card-heading">' + (index === 0 ? 'Parta de' : 'Encontre') + '</div>' +
@@ -54,8 +70,29 @@ function renderMissionDetails(startTitle, targetTitle) {
       }
       card.querySelector('h3').textContent = summary ? summary.title : (index === 0 ? startTitle : targetTitle);
       card.querySelector('p').textContent = summary ? summary.description : 'Não foi possível carregar o resumo.';
-      container.appendChild(card);
+      details.replaceChildren(card);
+      Array.prototype.forEach.call(tabs.children, function(tab) {
+        tab.classList.toggle('active', tab.dataset.mission === state.missionTab);
+      });
+    }
+
+    items.forEach(function(summary, index) {
+      var tab = document.createElement('button');
+      var tabKey = index === 0 ? 'start' : 'target';
+      tab.type = 'button';
+      tab.className = 'mission-tab ' + (tabKey === state.missionTab ? 'active' : '');
+      tab.dataset.mission = tabKey;
+      tab.textContent = (index === 0 ? 'Início: ' : 'Alvo: ') + (summary ? summary.title : (index === 0 ? startTitle : targetTitle));
+      tab.addEventListener('click', function() {
+        state.missionTab = tabKey;
+        renderSelectedMission();
+      });
+      tabs.appendChild(tab);
     });
+
+    container.appendChild(tabs);
+    container.appendChild(details);
+    renderSelectedMission();
   }).catch(function() {
     container.innerHTML = '<p class="panel-muted">Não foi possível carregar as informações da missão.</p>';
   });
@@ -81,16 +118,10 @@ function getPartyName() {
 async function createParty() {
   var name = getPartyName();
   if (!name) return partyError('Informe seu nome.');
-  partyError('Criando opções de voto...');
+  partyError('Criando party...');
   try {
     await ensurePartyIdentity();
-    var route = await getBalancedRoute(8);
-    var options = route.slice(0, 3).map(function(title, index) {
-      return { kind: 'start', position: index + 1, title: title };
-    }).concat(route.slice(5, 8).map(function(title, index) {
-      return { kind: 'target', position: index + 1, title: title };
-    }));
-    var party = await callPartyRpc('create_party', { p_display_name: name, p_options: options });
+    var party = await callPartyRpc('create_party', { p_display_name: name, p_options: [] });
     closePartySetup();
     await enterPartyLobby(party.id);
   } catch (error) {
@@ -118,7 +149,21 @@ async function enterPartyLobby(partyId) {
   state.partyClosed = false;
   document.getElementById('partyLobby').classList.remove('hidden');
   subscribeToParty(partyId, schedulePartyRefresh);
+  startPartyPolling(partyId);
   await refreshParty(partyId);
+}
+
+function startPartyPolling(partyId) {
+  if (state.partyPollingInterval) clearInterval(state.partyPollingInterval);
+  state.partyPollingInterval = setInterval(function() {
+    refreshParty(partyId).catch(function(error) { console.error('Não foi possível atualizar a party:', error); });
+  }, 2500);
+}
+
+function stopPartyPolling() {
+  if (!state.partyPollingInterval) return;
+  clearInterval(state.partyPollingInterval);
+  state.partyPollingInterval = null;
 }
 
 function schedulePartyRefresh() {
@@ -144,7 +189,10 @@ async function refreshParty(partyId) {
 function renderPartyLobby(snapshot) {
   document.getElementById('lobbyCode').textContent = snapshot.party.code;
   document.getElementById('lobbyMemberCount').textContent = '(' + snapshot.members.length + '/10)';
-  document.getElementById('lobbyStatus').textContent = 'Cada participante vota em um início e um alvo.';
+  var votingOpen = snapshot.party.status === 'voting';
+  document.getElementById('lobbyStatus').textContent = votingOpen
+    ? 'Vote em um artigo inicial e em um artigo alvo.'
+    : 'A party está pronta. O host pode iniciar a votação quando todos entrarem.';
   var members = document.getElementById('lobbyMembers');
   members.innerHTML = '';
   snapshot.members.forEach(function(member) {
@@ -155,7 +203,7 @@ function renderPartyLobby(snapshot) {
   var votes = snapshot.votes;
   var voteGrid = document.getElementById('voteGrid');
   voteGrid.innerHTML = '';
-  ['start', 'target'].forEach(function(kind) {
+  if (votingOpen) ['start', 'target'].forEach(function(kind) {
     var group = document.createElement('section');
     group.className = 'vote-group';
     group.innerHTML = '<h2>' + (kind === 'start' ? 'Artigo inicial' : 'Artigo alvo') + '</h2>';
@@ -163,12 +211,14 @@ function renderPartyLobby(snapshot) {
       var count = votes.filter(function(vote) { return vote.option_id === option.id; }).length;
       var mine = votes.find(function(vote) { return vote.user_id === partyStore.user.id && vote.kind === kind; });
       var button = document.createElement('button');
+      button.type = 'button';
       button.className = 'vote-option' + (mine && mine.option_id === option.id ? ' selected' : '');
       button.innerHTML = '<span></span><span class="vote-count">' + count + ' voto' + (count === 1 ? '' : 's') + '</span>';
       button.firstChild.textContent = option.title;
-      button.onclick = (function(optionId, voteKind) {
-        return function() { castPartyVote(snapshot.party.id, voteKind, optionId); };
-      })(option.id, kind);
+      button.disabled = state.partyVotePending;
+      button.addEventListener('click', (function(optionId, voteKind, voteButton) {
+        return function() { castPartyVote(snapshot.party.id, voteKind, optionId, voteButton); };
+      })(option.id, kind, button));
       group.appendChild(button);
     });
     voteGrid.appendChild(group);
@@ -176,24 +226,51 @@ function renderPartyLobby(snapshot) {
   var canStart = snapshot.party.host_id === partyStore.user.id;
   var startButton = document.getElementById('startPartyButton');
   startButton.classList.toggle('hidden', !canStart);
-  startButton.disabled = !canStart;
+  startButton.disabled = !canStart || state.partyStartPending;
+  startButton.textContent = votingOpen ? 'Começar corrida' : 'Iniciar votação';
 }
 
-async function castPartyVote(partyId, kind, optionId) {
+async function castPartyVote(partyId, kind, optionId, button) {
+  if (state.partyVotePending) return;
+  state.partyVotePending = true;
+  if (button) button.disabled = true;
   try {
     await callPartyRpc('cast_party_vote', { p_party_id: partyId, p_kind: kind, p_option_id: optionId });
     await refreshParty(partyId);
   } catch (error) {
     partyError(error.message || 'Não foi possível registrar o voto.', 'lobbyError');
+  } finally {
+    state.partyVotePending = false;
+    if (state.partySnapshot && state.partySnapshot.party.status === 'voting') renderPartyLobby(state.partySnapshot);
   }
 }
 
 async function startPartyGame() {
+  if (state.partyStartPending || !state.partySnapshot) return;
+  state.partyStartPending = true;
+  var startButton = document.getElementById('startPartyButton');
+  startButton.disabled = true;
   try {
-    await callPartyRpc('start_party', { p_party_id: state.partySnapshot.party.id });
+    if (state.partySnapshot.party.status === 'lobby') {
+      partyError('Preparando opções conectáveis...', 'lobbyError');
+      var route = await getBalancedRoute(8);
+      var options = route.slice(0, 3).map(function(title, index) {
+        return { kind: 'start', position: index + 1, title: title };
+      }).concat(route.slice(5, 8).map(function(title, index) {
+        return { kind: 'target', position: index + 1, title: title };
+      }));
+      await callPartyRpc('open_party_voting', { p_party_id: state.partySnapshot.party.id, p_options: options });
+    } else {
+      await callPartyRpc('start_party', { p_party_id: state.partySnapshot.party.id });
+    }
     await refreshParty(state.partySnapshot.party.id);
   } catch (error) {
     partyError(error.message || 'Não foi possível iniciar a partida.', 'lobbyError');
+  } finally {
+    state.partyStartPending = false;
+    if (state.partySnapshot && (state.partySnapshot.party.status === 'lobby' || state.partySnapshot.party.status === 'voting')) {
+      renderPartyLobby(state.partySnapshot);
+    }
   }
 }
 
@@ -206,13 +283,14 @@ function launchPartyGame(snapshot) {
   var shouldReload = state.startArticle !== snapshot.party.selected_start || state.endArticle !== snapshot.party.selected_target;
   state.startArticle = snapshot.party.selected_start;
   state.endArticle = snapshot.party.selected_target;
-  state.clicks = mine ? mine.clicks : 0;
-  state.path = mine && Array.isArray(mine.path) && mine.path.length ? mine.path : [];
+  if (shouldReload) {
+    state.clicks = mine ? mine.clicks : 0;
+    state.path = mine && Array.isArray(mine.path) && mine.path.length ? mine.path : [];
+  }
   state.playing = snapshot.party.status !== 'finished' && (!mine || mine.status === 'active');
+  if (snapshot.party.status === 'finished') stopTimer();
   document.getElementById('startTitle').textContent = state.startArticle;
   document.getElementById('endTitle').textContent = state.endArticle;
-  attachTooltipEvents(document.getElementById('startTitle'), state.startArticle);
-  attachTooltipEvents(document.getElementById('endTitle'), state.endArticle);
   renderMissionDetails(state.startArticle, state.endArticle);
   document.getElementById('clickCount').textContent = state.clicks;
   document.getElementById('panelClicks').textContent = state.clicks;
@@ -402,16 +480,53 @@ function updatePartyPanel() {
     item.appendChild(status);
     list.appendChild(item);
   });
+  updatePartyRoundStatus();
   updatePartyFinishPanel();
+}
+
+function updatePartyRoundStatus() {
+  var panel = document.getElementById('partyResultPanel');
+  if (state.mode !== 'party' || !state.partySnapshot || !['finishing', 'finished'].includes(state.partySnapshot.party.status)) {
+    panel.classList.add('hidden');
+    return;
+  }
+  var members = state.partySnapshot.members.slice().sort(function(a, b) {
+    return (a.placement || 99) - (b.placement || 99) || a.joined_at.localeCompare(b.joined_at);
+  });
+  var winner = members.find(function(member) { return member.placement === 1; });
+  document.getElementById('partyAnnouncement').textContent = winner
+    ? winner.display_name + ' chegou ao alvo e está em 1º lugar.'
+    : 'Aguardando a primeira chegada.';
+  var ranking = document.getElementById('partyRanking');
+  ranking.innerHTML = '';
+  members.forEach(function(member) {
+    var item = document.createElement('li');
+    var position = member.placement ? member.placement + 'º' : '—';
+    item.textContent = position + ' · ' + member.display_name + ' · ' + member.clicks + ' cliques';
+    if (member.user_id === partyStore.user.id) item.className = 'me';
+    ranking.appendChild(item);
+  });
+  panel.classList.remove('hidden');
 }
 
 function updatePartyFinishPanel() {
   var panel = document.getElementById('finishPanel');
-  if (state.mode !== 'party' || !state.partySnapshot || state.partySnapshot.party.status !== 'finishing') {
+  var returnButton = document.getElementById('returnLobbyButton');
+  if (state.mode !== 'party' || !state.partySnapshot || !['finishing', 'finished'].includes(state.partySnapshot.party.status)) {
     panel.classList.add('hidden');
     return;
   }
   panel.classList.remove('hidden');
+  var isHost = state.partySnapshot.party.host_id === partyStore.user.id;
+  if (state.partySnapshot.party.status === 'finished') {
+    document.getElementById('finishCountdown').textContent = isHost
+      ? 'A rodada terminou. Volte ao lobby para jogar novamente com a mesma equipe.'
+      : 'A rodada terminou. Aguardando o host voltar ao lobby.';
+    returnButton.classList.toggle('hidden', !isHost);
+    returnButton.disabled = state.partyReturnPending;
+    return;
+  }
+  returnButton.classList.add('hidden');
   var deadline = new Date(state.partySnapshot.party.finish_deadline).getTime();
   var remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
   document.getElementById('finishCountdown').textContent = remaining > 0
@@ -423,10 +538,29 @@ function updatePartyFinishPanel() {
   }
 }
 
+async function returnToPartyLobby() {
+  if (state.partyReturnPending || !state.partySnapshot || state.partySnapshot.party.host_id !== partyStore.user.id) return;
+  state.partyReturnPending = true;
+  try {
+    await callPartyRpc('return_party_to_lobby', { p_party_id: state.partySnapshot.party.id });
+    state.partyClosed = false;
+    state.path = [];
+    state.clicks = 0;
+    state.currentArticle = null;
+    document.getElementById('victoryOverlay').classList.add('hidden');
+    await refreshParty(state.partySnapshot.party.id);
+  } catch (error) {
+    console.error('Não foi possível voltar ao lobby:', error);
+  } finally {
+    state.partyReturnPending = false;
+    updatePartyFinishPanel();
+  }
+}
+
 async function syncPartyProgress() {
   if (state.mode !== 'party' || !state.partySnapshot || !state.playing) return;
   try {
-    await callPartyRpc('record_party_jump', { p_party_id: state.partySnapshot.party.id, p_path: state.path });
+    await callPartyRpc('record_party_jump', { p_party_id: state.partySnapshot.party.id, p_path: state.path, p_clicks: state.clicks });
   } catch (error) {
     console.error('Não foi possível sincronizar o salto:', error);
   }
@@ -434,7 +568,7 @@ async function syncPartyProgress() {
 
 async function finishPartyGame() {
   try {
-    await callPartyRpc('finish_party_member', { p_party_id: state.partySnapshot.party.id, p_path: state.path });
+    await callPartyRpc('finish_party_member', { p_party_id: state.partySnapshot.party.id, p_path: state.path, p_clicks: state.clicks });
     await refreshParty(state.partySnapshot.party.id);
     victory();
   } catch (error) {
@@ -547,13 +681,21 @@ function showLoading(show) {
 
 function loadArticle(title, addToPath) {
   if (addToPath === undefined) addToPath = true;
+  var requestId = ++state.articleRequestId;
+  state.articleLoadPending = true;
   showLoading(true);
   
   return getArticleHtml(title)
     .then(function(result) {
+      if (requestId !== state.articleRequestId) return;
       var fullPage = buildWikiPage(fixRelativeUrls(result.html), title, result.sections, state.darkMode);
       var frame = document.getElementById('wiki-frame');
-      
+      frame.onload = function() {
+        if (requestId !== state.articleRequestId) return;
+        interceptLinks(frame);
+        state.articleLoadPending = false;
+        showLoading(false);
+      };
       frame.srcdoc = fullPage;
       
       state.currentArticle = title;
@@ -567,17 +709,15 @@ function loadArticle(title, addToPath) {
       updateHistory();
       updateSidebarToc(result.sections);
 
-      // Wait for iframe to load
-      frame.onload = function() {
-        interceptLinks(frame);
-        showLoading(false);
-      };
-
       // Fallback timeout
-      setTimeout(function() { showLoading(false); }, 8000);
+      setTimeout(function() {
+        if (requestId === state.articleRequestId) showLoading(false);
+      }, 8000);
     })
     .catch(function(err) {
+      if (requestId !== state.articleRequestId) return;
       console.error('Erro ao carregar artigo:', err);
+      state.articleLoadPending = false;
       showLoading(false);
       alert('Erro ao carregar "' + title + '". Tente novamente.');
     });
@@ -593,6 +733,7 @@ function interceptLinks(frame) {
     
     // Add click listener to intercept all links
     doc.addEventListener('click', function(e) {
+      if (state.articleLoadPending || !state.playing) return;
       var link = e.target.closest('a');
       if (!link) return;
 
@@ -666,6 +807,16 @@ function victory() {
   }).join(' → ');
   document.getElementById('victoryPath').innerHTML = pathHtml;
 
+  var playAgainButton = document.getElementById('playAgainButton');
+  if (state.mode === 'party') {
+    var canReturn = state.partySnapshot && state.partySnapshot.party.status === 'finished' && state.partySnapshot.party.host_id === partyStore.user.id;
+    playAgainButton.textContent = canReturn ? 'Voltar ao lobby' : 'Aguardando fim da rodada';
+    playAgainButton.disabled = !canReturn;
+  } else {
+    playAgainButton.textContent = 'Jogar novamente';
+    playAgainButton.disabled = false;
+  }
+
   document.getElementById('victoryOverlay').classList.remove('hidden');
 }
 
@@ -673,6 +824,7 @@ function victory() {
 function startSoloGame() {
   state.mode = 'solo';
   unsubscribeFromParty();
+  stopPartyPolling();
   startGame();
 }
 
@@ -704,8 +856,6 @@ function startGame() {
       startTitleEl.textContent = state.startArticle;
       endTitleEl.textContent = state.endArticle;
 
-      attachTooltipEvents(startTitleEl, state.startArticle);
-      attachTooltipEvents(endTitleEl, state.endArticle);
       renderMissionDetails(state.startArticle, state.endArticle);
 
       startTimer();
@@ -720,6 +870,10 @@ function startGame() {
 }
 
 function playAgain() {
+  if (state.mode === 'party') {
+    returnToPartyLobby();
+    return;
+  }
   document.getElementById('victoryOverlay').classList.add('hidden');
   startGame();
 }

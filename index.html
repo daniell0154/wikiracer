@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WikiRacer</title>
+  <title>Corrida da Wiki</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -12,7 +12,7 @@
   <!-- Start Screen -->
   <div class="start-screen" id="startScreen">
     <div class="start-globe">W</div>
-    <h1>WikiRacer</h1>
+    <h1>Corrida da Wiki</h1>
     <p class="subtitle">Navegue de um artigo aleatório da Wikipedia até outro usando apenas os links internos. Quem chega em menos cliques, vence!</p>
     <div class="difficulty-selector">
       <button class="diff-btn active" data-diff="easy" onclick="setDifficulty('easy')">Fácil</button>
@@ -31,7 +31,7 @@
       <h1>Party multiplayer</h1>
       <p>Convide até 10 pessoas, votem no percurso e corram até o alvo.</p>
       <label for="partyName">Seu nome</label>
-      <input id="partyName" maxlength="24" placeholder="Ex.: Rocky Gamer" autocomplete="nickname">
+      <input id="partyName" maxlength="24" placeholder="Ex.: Daniel" autocomplete="nickname">
       <div class="party-choices">
         <button class="start-btn" onclick="createParty()">Criar party</button>
         <div class="join-party">
@@ -47,13 +47,13 @@
     <div class="party-card party-lobby-card">
       <h1>Lobby da party</h1>
       <p class="party-code-display">Código: <strong id="lobbyCode"></strong></p>
-      <p class="party-status" id="lobbyStatus">Escolham os artigos da rodada.</p>
+      <p class="party-status" id="lobbyStatus">Aguarde o host iniciar a votação.</p>
       <div class="vote-grid" id="voteGrid"></div>
       <div class="lobby-members">
         <h2>Participantes <span id="lobbyMemberCount"></span></h2>
         <ul id="lobbyMembers"></ul>
       </div>
-      <button class="start-btn" id="startPartyButton" onclick="startPartyGame()">Iniciar partida</button>
+      <button class="start-btn" id="startPartyButton" type="button" onclick="startPartyGame()">Iniciar votação</button>
       <p class="party-error" id="lobbyError"></p>
     </div>
   </div>
@@ -152,6 +152,12 @@
           <ul class="participant-list" id="participantList"><li class="panel-muted">Você</li></ul>
         </section>
 
+        <section class="game-panel-section hidden" id="partyResultPanel">
+          <h2>Resultado da rodada</h2>
+          <p class="party-announcement" id="partyAnnouncement"></p>
+          <ol class="party-ranking" id="partyRanking"></ol>
+        </section>
+
         <section class="game-panel-section route-panel">
           <h2>Seu percurso</h2>
           <ol class="route-list" id="routeList"></ol>
@@ -161,6 +167,7 @@
           <h2>Chegada</h2>
           <p class="finish-countdown" id="finishCountdown"></p>
           <button class="secondary-btn" onclick="quitPartyGame()">Desistir da partida</button>
+          <button class="secondary-btn hidden" id="returnLobbyButton" onclick="returnToPartyLobby()">Voltar ao lobby</button>
         </section>
       </aside>
     </div>
@@ -189,7 +196,7 @@
         </div>
       </div>
       <div class="victory-path" id="victoryPath"></div>
-      <button class="play-again-btn" onclick="playAgain()">Jogar novamente</button>
+      <button class="play-again-btn" id="playAgainButton" onclick="playAgain()">Jogar novamente</button>
     </div>
   </div>
 

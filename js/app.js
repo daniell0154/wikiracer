@@ -156,8 +156,18 @@ async function enterPartyLobby(partyId) {
 function startPartyPolling(partyId) {
   if (state.partyPollingInterval) clearInterval(state.partyPollingInterval);
   state.partyPollingInterval = setInterval(function() {
-    refreshParty(partyId).catch(function(error) { console.error('Não foi possível atualizar a party:', error); });
+    closePartyWhenDue(partyId)
+      .then(function() { return refreshParty(partyId); })
+      .catch(function(error) { console.error('Não foi possível atualizar a party:', error); });
   }, 2500);
+}
+
+async function closePartyWhenDue(partyId) {
+  if (!state.partySnapshot || state.partySnapshot.party.id !== partyId || state.partySnapshot.party.status !== 'finishing') return;
+  var deadline = new Date(state.partySnapshot.party.finish_deadline).getTime();
+  if (Number.isNaN(deadline) || deadline > Date.now() || state.partyClosed) return;
+  state.partyClosed = true;
+  await callPartyRpc('close_party', { p_party_id: partyId });
 }
 
 function stopPartyPolling() {
@@ -213,8 +223,17 @@ function renderPartyLobby(snapshot) {
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'vote-option' + (mine && mine.option_id === option.id ? ' selected' : '');
-      button.innerHTML = '<span></span><span class="vote-count">' + count + ' voto' + (count === 1 ? '' : 's') + '</span>';
-      button.firstChild.textContent = option.title;
+      button.innerHTML = '<span class="vote-option-thumbnail"><img alt="" referrerpolicy="no-referrer"><span>Sem imagem</span></span><span class="vote-option-content"><strong></strong><span class="vote-count">' + count + ' voto' + (count === 1 ? '' : 's') + '</span></span>';
+      button.querySelector('strong').textContent = option.title;
+      getArticleSummary(option.title).then(function(summary) {
+        if (!summary || !summary.image || !button.isConnected) return;
+        var thumbnail = button.querySelector('.vote-option-thumbnail');
+        var image = thumbnail.querySelector('img');
+        image.alt = 'Imagem de ' + summary.title;
+        image.onload = function() { thumbnail.classList.add('has-image'); };
+        image.onerror = function() { image.removeAttribute('src'); };
+        image.src = summary.image;
+      });
       button.disabled = state.partyVotePending;
       button.addEventListener('click', (function(optionId, voteKind, voteButton) {
         return function() { castPartyVote(snapshot.party.id, voteKind, optionId, voteButton); };
@@ -475,7 +494,10 @@ function updatePartyPanel() {
     if (member.user_id === partyStore.user.id) name.className = 'me';
     var status = document.createElement('span');
     status.className = 'panel-muted';
-    status.textContent = member.placement ? placements[member.placement] : member.clicks + ' cliques';
+    var currentPage = Array.isArray(member.path) && member.path.length ? member.path[member.path.length - 1] : state.startArticle;
+    status.textContent = member.placement
+      ? placements[member.placement]
+      : member.clicks + ' cliques · em ' + (currentPage || 'artigo inicial');
     item.appendChild(name);
     item.appendChild(status);
     list.appendChild(item);
@@ -528,14 +550,16 @@ function updatePartyFinishPanel() {
   }
   returnButton.classList.add('hidden');
   var deadline = new Date(state.partySnapshot.party.finish_deadline).getTime();
+  if (Number.isNaN(deadline)) {
+    document.getElementById('finishCountdown').textContent = 'Cronômetro indisponível. Atualize o schema da party no Supabase.';
+    return;
+  }
   var remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  if (remaining > 0) state.partyClosed = false;
   document.getElementById('finishCountdown').textContent = remaining > 0
     ? 'A partida termina em ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0')
     : 'Encerrando partida...';
-  if (remaining === 0 && !state.partyClosed) {
-    state.partyClosed = true;
-    callPartyRpc('close_party', { p_party_id: state.partySnapshot.party.id }).catch(function(error) { console.error(error); });
-  }
+  if (remaining === 0) closePartyWhenDue(state.partySnapshot.party.id).catch(function(error) { console.error(error); });
 }
 
 async function returnToPartyLobby() {

@@ -1,4 +1,5 @@
 create extension if not exists pgcrypto;
+create extension if not exists pg_cron;
 
 create type public.party_status as enum ('lobby', 'voting', 'playing', 'finishing', 'finished');
 create type public.member_status as enum ('active', 'finished', 'quit');
@@ -202,6 +203,25 @@ begin
 end;
 $$;
 
+create or replace function public.close_expired_parties()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  with expired_parties as (
+    update public.parties
+    set status = 'finished'
+    where status = 'finishing'
+      and finish_deadline <= now()
+    returning id
+  )
+  update public.party_members
+  set status = 'finished',
+      placement = 4,
+      finished_at = coalesce(finished_at, now())
+  where party_id in (select id from expired_parties)
+    and status = 'active';
+end;
+$$;
+
 create or replace function public.return_party_to_lobby(p_party_id uuid)
 returns public.parties language plpgsql security definer set search_path = public as $$
 declare v_party public.parties;
@@ -223,7 +243,27 @@ $$;
 
 grant usage on schema public to anon, authenticated;
 grant select on public.parties, public.party_members, public.party_options, public.party_votes to anon, authenticated;
-revoke all on function public.create_party(text, jsonb), public.open_party_voting(uuid, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb, integer), public.finish_party_member(uuid, jsonb, integer), public.quit_party_member(uuid), public.close_party(uuid), public.return_party_to_lobby(uuid) from public;
+revoke all on function public.create_party(text, jsonb), public.open_party_voting(uuid, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb, integer), public.finish_party_member(uuid, jsonb, integer), public.quit_party_member(uuid), public.close_party(uuid), public.close_expired_parties(), public.return_party_to_lobby(uuid) from public;
 grant execute on function public.create_party(text, jsonb), public.open_party_voting(uuid, jsonb), public.join_party(text, text), public.cast_party_vote(uuid, public.vote_kind, uuid), public.start_party(uuid), public.record_party_jump(uuid, jsonb, integer), public.finish_party_member(uuid, jsonb, integer), public.quit_party_member(uuid), public.close_party(uuid), public.return_party_to_lobby(uuid) to anon, authenticated;
+
+do $$
+declare
+  v_job_id bigint;
+begin
+  select jobid into v_job_id
+  from cron.job
+  where jobname = 'wikiracer-close-expired-parties';
+
+  if v_job_id is not null then
+    perform cron.unschedule(v_job_id);
+  end if;
+
+  perform cron.schedule(
+    'wikiracer-close-expired-parties',
+    '* * * * *',
+    'select public.close_expired_parties();'
+  );
+end;
+$$;
 
 alter publication supabase_realtime add table public.parties, public.party_members, public.party_options, public.party_votes;

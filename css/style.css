@@ -157,16 +157,23 @@ body {
 .vote-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 18px 0; }
 .vote-group { border: 1px solid var(--border-light); padding: 12px; }
 .vote-group h2 { font-size: 18px; margin-bottom: 8px; }
-.vote-option { display: flex; justify-content: space-between; align-items: center; width: 100%; margin: 6px 0; padding: 8px; text-align: left; background: #f8f9fa; border: 1px solid transparent; color: var(--link); cursor: pointer; }
+.vote-option { display: flex; align-items: center; gap: 9px; width: 100%; margin: 6px 0; padding: 8px; text-align: left; background: #f8f9fa; border: 1px solid transparent; color: var(--link); cursor: pointer; }
 .vote-option:hover, .vote-option.selected { border-color: var(--accent); background: #eaecf0; }
 .vote-option:disabled { cursor: wait; opacity: 0.7; }
+.vote-option-thumbnail { display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px; overflow: hidden; background: var(--surface2); color: var(--text-muted); font-size: 9px; text-align: center; }
+.vote-option-thumbnail img { display: none; width: 100%; height: 100%; object-fit: cover; }
+.vote-option-thumbnail.has-image img { display: block; }
+.vote-option-thumbnail.has-image span { display: none; }
+.vote-option-content { display: grid; min-width: 0; gap: 3px; }
+.vote-option-content strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .vote-count { color: var(--text-muted); font-size: 12px; }
 .lobby-members { margin: 20px 0; }
 .lobby-members h2 { font-size: 18px; margin-bottom: 8px; }
 .lobby-members ul, .participant-list { list-style: none; padding: 0; }
 .lobby-members li, .participant-list li { padding: 6px 0; border-bottom: 1px solid var(--border-light); }
 .participant-list { font-size: 13px; }
-.participant-list li { display: flex; justify-content: space-between; gap: 6px; }
+.participant-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; }
+.participant-list li .panel-muted { overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .participant-list .me { font-weight: 700; }
 .party-announcement { margin-bottom: 8px; color: var(--text-muted); line-height: 1.4; }
 .party-ranking { margin: 0; padding-left: 20px; }

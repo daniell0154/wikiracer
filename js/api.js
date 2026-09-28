@@ -76,6 +76,7 @@ function getArticleHtml(title) {
   const params = new URLSearchParams({
     action: 'parse',
     page: title,
+    redirects: '1',
     format: 'json',
     origin: '*',
     prop: 'text|sections',

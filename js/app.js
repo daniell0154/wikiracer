@@ -18,6 +18,7 @@ var state = {
   partyVotePending: false,
   partyPollingInterval: null,
   partyReturnPending: false,
+  partyFinishPending: false,
   darkMode: localStorage.getItem('wikiracer-theme') === 'dark',
   missionKey: null,
   missionTab: 'start',
@@ -167,7 +168,12 @@ async function closePartyWhenDue(partyId) {
   var deadline = new Date(state.partySnapshot.party.finish_deadline).getTime();
   if (Number.isNaN(deadline) || deadline > Date.now() || state.partyClosed) return;
   state.partyClosed = true;
-  await callPartyRpc('close_party', { p_party_id: partyId });
+  try {
+    await callPartyRpc('close_party', { p_party_id: partyId });
+    await refreshParty(partyId);
+  } finally {
+    if (!state.partySnapshot || state.partySnapshot.party.status !== 'finished') state.partyClosed = false;
+  }
 }
 
 function stopPartyPolling() {
@@ -197,6 +203,24 @@ async function refreshParty(partyId) {
 }
 
 function renderPartyLobby(snapshot) {
+  stopTimer();
+  state.playing = false;
+  state.startArticle = null;
+  state.endArticle = null;
+  state.currentArticle = null;
+  state.path = [];
+  state.clicks = 0;
+  state.missionKey = null;
+  document.getElementById('partyLobby').classList.remove('hidden');
+  document.getElementById('startScreen').classList.add('hidden');
+  document.getElementById('appContainer').style.display = 'none';
+  document.getElementById('victoryOverlay').classList.add('hidden');
+  document.getElementById('partyResultPanel').classList.add('hidden');
+  document.getElementById('finishPanel').classList.add('hidden');
+  document.getElementById('clickCount').textContent = '0';
+  document.getElementById('panelClicks').textContent = '0';
+  document.getElementById('timer').textContent = '0:00';
+  document.getElementById('panelTimer').textContent = '0:00';
   document.getElementById('lobbyCode').textContent = snapshot.party.code;
   document.getElementById('lobbyMemberCount').textContent = '(' + snapshot.members.length + '/10)';
   var votingOpen = snapshot.party.status === 'voting';
@@ -307,13 +331,16 @@ function launchPartyGame(snapshot) {
     state.path = mine && Array.isArray(mine.path) && mine.path.length ? mine.path : [];
   }
   state.playing = snapshot.party.status !== 'finished' && (!mine || mine.status === 'active');
-  if (snapshot.party.status === 'finished') stopTimer();
   document.getElementById('startTitle').textContent = state.startArticle;
   document.getElementById('endTitle').textContent = state.endArticle;
   renderMissionDetails(state.startArticle, state.endArticle);
   document.getElementById('clickCount').textContent = state.clicks;
   document.getElementById('panelClicks').textContent = state.clicks;
-  if (!state.timerInterval) startTimer();
+  if (snapshot.party.status === 'finished') {
+    stopTimer();
+  } else if (state.playing && !state.timerInterval) {
+    startTimer();
+  }
   if (shouldReload) {
     state.currentArticle = null;
     loadArticle(state.path.length ? state.path[state.path.length - 1] : state.startArticle, state.path.length === 0);
@@ -536,6 +563,7 @@ function updatePartyFinishPanel() {
   var returnButton = document.getElementById('returnLobbyButton');
   if (state.mode !== 'party' || !state.partySnapshot || !['finishing', 'finished'].includes(state.partySnapshot.party.status)) {
     panel.classList.add('hidden');
+    updatePartyVictoryState();
     return;
   }
   panel.classList.remove('hidden');
@@ -546,6 +574,7 @@ function updatePartyFinishPanel() {
       : 'A rodada terminou. Aguardando o host voltar ao lobby.';
     returnButton.classList.toggle('hidden', !isHost);
     returnButton.disabled = state.partyReturnPending;
+    updatePartyVictoryState();
     return;
   }
   returnButton.classList.add('hidden');
@@ -559,7 +588,39 @@ function updatePartyFinishPanel() {
   document.getElementById('finishCountdown').textContent = remaining > 0
     ? 'A partida termina em ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0')
     : 'Encerrando partida...';
+  updatePartyVictoryState(remaining);
   if (remaining === 0) closePartyWhenDue(state.partySnapshot.party.id).catch(function(error) { console.error(error); });
+}
+
+function updatePartyVictoryState(remaining) {
+  if (state.mode !== 'party') return;
+  var message = document.getElementById('victoryMessage');
+  var button = document.getElementById('playAgainButton');
+  var snapshot = state.partySnapshot;
+  if (!snapshot || snapshot.party.status === 'playing') {
+    message.textContent = 'Chegou no artigo alvo!';
+    button.textContent = 'Aguardando fim da rodada';
+    button.disabled = true;
+    return;
+  }
+  if (snapshot.party.status === 'finishing') {
+    if (remaining === undefined) {
+      var deadline = new Date(snapshot.party.finish_deadline).getTime();
+      remaining = Number.isNaN(deadline) ? null : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    }
+    message.textContent = remaining === null
+      ? 'Você chegou primeiro. Aguardando o encerramento da rodada.'
+      : 'Você chegou primeiro. A rodada termina em ' + Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0') + '.';
+    button.textContent = 'Aguardando fim da rodada';
+    button.disabled = true;
+    return;
+  }
+  var isHost = snapshot.party.host_id === partyStore.user.id;
+  message.textContent = isHost
+    ? 'A rodada terminou. Volte ao lobby para iniciar outra partida.'
+    : 'A rodada terminou. Aguardando o host iniciar a próxima.';
+  button.textContent = isHost ? 'Voltar ao lobby' : 'Aguardando o host';
+  button.disabled = !isHost || state.partyReturnPending;
 }
 
 async function returnToPartyLobby() {
@@ -591,12 +652,23 @@ async function syncPartyProgress() {
 }
 
 async function finishPartyGame() {
+  if (state.partyFinishPending || !state.partySnapshot || !state.playing) return;
+  state.partyFinishPending = true;
+  state.playing = false;
   try {
     await callPartyRpc('finish_party_member', { p_party_id: state.partySnapshot.party.id, p_path: state.path, p_clicks: state.clicks });
-    await refreshParty(state.partySnapshot.party.id);
     victory();
+    try {
+      await refreshParty(state.partySnapshot.party.id);
+    } catch (refreshError) {
+      console.error('A chegada foi registrada, mas a atualização da party falhou:', refreshError);
+    }
   } catch (error) {
-    console.error(error);
+    console.error('Não foi possível registrar a chegada:', error);
+    state.playing = true;
+    alert('Não foi possível registrar sua chegada. Tente clicar no artigo alvo novamente.');
+  } finally {
+    state.partyFinishPending = false;
   }
 }
 
@@ -751,9 +823,19 @@ function normalizeTitle(title) {
   return title.replace(/ /g, '_').toLowerCase();
 }
 
+function preventBrowserFind(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
 function interceptLinks(frame) {
   try {
     var doc = frame.contentDocument || frame.contentWindow.document;
+
+    // Searching the rendered article would bypass the navigation challenge.
+    doc.addEventListener('keydown', preventBrowserFind, true);
     
     // Add click listener to intercept all links
     doc.addEventListener('click', function(e) {
@@ -833,10 +915,9 @@ function victory() {
 
   var playAgainButton = document.getElementById('playAgainButton');
   if (state.mode === 'party') {
-    var canReturn = state.partySnapshot && state.partySnapshot.party.status === 'finished' && state.partySnapshot.party.host_id === partyStore.user.id;
-    playAgainButton.textContent = canReturn ? 'Voltar ao lobby' : 'Aguardando fim da rodada';
-    playAgainButton.disabled = !canReturn;
+    updatePartyVictoryState();
   } else {
+    document.getElementById('victoryMessage').textContent = 'Chegou no artigo alvo!';
     playAgainButton.textContent = 'Jogar novamente';
     playAgainButton.disabled = false;
   }
@@ -911,4 +992,5 @@ var observer = new MutationObserver(function(mutations) {
 });
 observer.observe(tooltip, { attributes: true, attributeFilter: ['class'] });
 
+document.addEventListener('keydown', preventBrowserFind, true);
 applyTheme();
